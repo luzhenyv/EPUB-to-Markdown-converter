@@ -266,7 +266,9 @@ class ContentConverter:
 
 
 class LLMOptimizer:
-    """Class responsible for optimizing content using LLM."""
+    """Class responsible for optimizing content using LLM.
+        NOTE: the ollama generate 22.25 tokens/s in M4 Max with 128GB RAM using gemma3:27b, so 1000 tokens will take 45 seconds to generate
+    """
     
     def __init__(self, model_name: str, book_info: Dict[str, Any], temperature: float = 0.0):
         """
@@ -281,14 +283,13 @@ class LLMOptimizer:
         self.book_info = book_info
         self.temperature = temperature
         
-    def optimize_content(self, markdown_content: str, max_tokens: int = 2000) -> str:
+    def optimize_content(self, markdown_content: str, max_tokens: int = 1000) -> str:
         """
         Use Ollama to optimize the Markdown content in chunks.
         
         Args:
             markdown_content (str): Markdown content to optimize
-            max_tokens (int): Maximum number of tokens per chunk
-            
+            max_tokens (int): Maximum number of tokens per chunk;
         Returns:
             str: Optimized Markdown content
         """
@@ -351,7 +352,7 @@ class LLMOptimizer:
                     },
                     {"role": "user", "content": OLLAMA_USER_PROMPT.format(content=content)},
                 ],
-                options={"temperature": self.temperature}
+                options={"temperature": self.temperature},
             )
             return response
         except Exception as e:
@@ -435,6 +436,16 @@ class EPUBConverter:
             chapter_id (str): ID of the chapter to process
             manifest (Dict[str, str]): Manifest mapping IDs to file paths
         """
+        # Determine output path and check if file already exists
+        title = chapter_id.replace('_', ' ').title()
+        file_extension = "md" if self.use_llm else "txt"
+        output_path = self.output_dir / f"# {title}.{file_extension}"
+        
+        # Skip if file already exists
+        if output_path.exists():
+            logging.info(f"Skipping existing chapter: {output_path}")
+            return
+            
         # Read chapter content
         content = self.epub_extractor.read_chapter_content(chapter_id, manifest)
         if not content:
@@ -447,15 +458,11 @@ class EPUBConverter:
         if self.use_llm:
             # Use LLM for conversion to Markdown
             optimized_content = self.llm_optimizer.optimize_content(content)
-            file_extension = "md"
         else:
             # Convert to plain text
             optimized_content = self.content_converter.convert_to_plain_text(content)
-            file_extension = "txt"
             
         # Save chapter
-        title = chapter_id.replace('_', ' ').title()
-        output_path = self.output_dir / f"# {title}.{file_extension}"
         try:
             with open(output_path, "w", encoding="utf-8") as f:
                 f.write(optimized_content)
